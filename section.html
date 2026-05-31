@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #172b4d; margin: 10px; font-size: 14px; }
+    button { background: #0079bf; color: white; border: none; padding: 7px 14px; border-radius: 3px; cursor: pointer; font-weight: bold; }
+    button:disabled { background: #a5adba; cursor: not-allowed; }
+    .step-box { background: #f4f5f7; border-radius: 5px; padding: 12px; margin-bottom: 12px; }
+    label { display: block; margin: 8px 0 4px 0; font-weight: 600; }
+    select { width: 100%; padding: 6px; border: 1px solid #ccd1d9; border-radius: 3px; }
+    .hidden { display: none; }
+    #status { margin-top: 10px; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div id="authStep" class="step-box">
+    <p>To create cards on this board, authorize the Importer tool with your Trello account.</p>
+    <button id="authBtn">Authorize Power-Up</button>
+  </div>
+
+  <div id="importStep" class="step-box hidden">
+    <input type="file" id="fileUpload" accept=".csv, .xlsx, .xls" />
+    
+    <div id="mappingUi" class="hidden">
+      <label for="nameSelect">Select Card Name Column:</label>
+      <select id="nameSelect"><option value="">-- Choose Column --</option></select>
+
+      <label for="dueSelect">Select Due Date Column:</label>
+      <select id="dueSelect"><option value="">-- Choose Column --</option></select>
+
+      <br><br>
+      <button id="runBtn">Start Bulk Import</button>
+    </div>
+    
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const t = TrelloPowerUp.iframe();
+    let parsedData = [];
+    let headers = [];
+    let userToken = '';
+    let currentContext = {};
+
+    t.getContext().then(ctx => { currentContext = ctx; });
+
+    const authSuccess = function() {
+      document.getElementById('authStep').classList.add('hidden');
+      document.getElementById('importStep').classList.remove('hidden');
+      t.sizeTo('body').done();
+    };
+
+    document.getElementById('authBtn').addEventListener('click', function() {
+      t.authorize(function(secret) {
+        return 'https://trello.com/1/authorize?expiration=1day&name=BulkImporter&scope=write,read&response_type=token&key=' + t.getPlugin().key;
+      })
+      .then(function(token) {
+        userToken = token;
+        authSuccess();
+      });
+    });
+
+    t.render(function() {
+      if (userToken) {
+        authSuccess();
+      }
+    });
+
+    document.getElementById('fileUpload').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        
+        parsedData = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (parsedData.length > 0) {
+          headers = Object.keys(parsedData[0]);
+          populateDropdowns(headers);
+          document.getElementById('mappingUi').classList.remove('hidden');
+          t.sizeTo('body').done();
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    function populateDropdowns(columns) {
+      const nameSel = document.getElementById('nameSelect');
+      const dueSel = document.getElementById('dueSelect');
+      
+      nameSel.innerHTML = '<option value="">-- Choose Column --</option>';
+      dueSel.innerHTML = '<option value="">-- Choose Column --</option>';
+
+      columns.forEach(col => {
+        const opt1 = document.createElement('option');
+        opt1.value = col; opt1.textContent = col;
+        nameSel.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = col; opt2.textContent = col;
+        dueSel.appendChild(opt2);
+      });
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async function() {
+      const nameKey = document.getElementById('nameSelect').value;
+      const dueKey = document.getElementById('dueSelect').value;
+
+      if (!nameKey) {
+        alert('Card Name column mapping is mandatory.');
+        return;
+      }
+
+      document.getElementById('runBtn').disabled = true;
+      const statusDiv = document.getElementById('status');
+      
+      let listId = '';
+      try {
+        const cardData = await t.card('idList');
+        listId = cardData.idList;
+      } catch(err) {
+        statusDiv.textContent = "Error resolving active destination target list.";
+        document.getElementById('runBtn').disabled = false;
+        return;
+      }
+
+      let successCount = 0;
+      for (let i = 0; i < parsedData.length; i++) {
+        const row = parsedData[i];
+        const cardName = row[nameKey];
+        let cardDue = row[dueKey] ? new Date(row[dueKey]).toISOString() : '';
+
+        if (!cardName) continue;
+
+        statusDiv.textContent = `Processing row ${i + 1} of ${parsedData.length}...`;
+
+        const apiKey = t.getPlugin().key; 
+        const url = `https://api.trello.com/1/cards?idList=${listId}&name=${encodeURIComponent(cardName)}&due=${encodeURIComponent(cardDue)}&key=${apiKey}&token=${userToken}`;
+
+        try {
+          const res = await fetch(url, { method: 'POST' });
+          if (res.ok) successCount++;
+        } catch (err) {
+          console.error('Failed to create card line:', row, err);
+        }
+      }
+
+      statusDiv.textContent = `Completed! Successfully imported ${successCount} cards onto your list.`;
+      document.getElementById('runBtn').disabled = false;
+    });
+  </script>
+</body>
+</html>
