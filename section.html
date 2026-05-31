@@ -40,13 +40,17 @@
   </div>
 
   <script>
-    const t = TrelloPowerUp.iframe();
+    // Insert your API Key here
+    const TRELLO_API_KEY = 'YOUR_API_KEY_HERE';
+
+    const t = TrelloPowerUp.iframe({
+      appKey: cc9c47335878052116922638d8cccfca,
+      appName: 'Bulk Card Importer'
+    });
+    
     let parsedData = [];
     let headers = [];
     let userToken = '';
-    let currentContext = {};
-
-    t.getContext().then(ctx => { currentContext = ctx; });
 
     const authSuccess = function() {
       document.getElementById('authStep').classList.add('hidden');
@@ -54,20 +58,31 @@
       t.sizeTo('body').done();
     };
 
+    // Native Trello REST API Authorization
     document.getElementById('authBtn').addEventListener('click', function() {
-      t.authorize(function(secret) {
-        return 'https://trello.com/1/authorize?expiration=1day&name=BulkImporter&scope=write,read&response_type=token&key=' + t.getPlugin().key;
-      })
-      .then(function(token) {
+      t.getRestApi().authorize({
+        scope: 'read,write',
+        expiration: '1day'
+      }).then(function() {
+        return t.getRestApi().getToken();
+      }).then(function(token) {
         userToken = token;
         authSuccess();
+      }).catch(function(err) {
+        console.error("Authorization failed:", err);
       });
     });
 
+    // Check auth status on load
     t.render(function() {
-      if (userToken) {
-        authSuccess();
-      }
+      t.getRestApi().isAuthorized().then(function(isAuth) {
+        if (isAuth) {
+          t.getRestApi().getToken().then(function(token) {
+            userToken = token;
+            authSuccess();
+          });
+        }
+      });
     });
 
     document.getElementById('fileUpload').addEventListener('change', function(e) {
@@ -142,8 +157,7 @@
 
         statusDiv.textContent = `Processing row ${i + 1} of ${parsedData.length}...`;
 
-        const apiKey = t.getPlugin().key; 
-        const url = `https://api.trello.com/1/cards?idList=${listId}&name=${encodeURIComponent(cardName)}&due=${encodeURIComponent(cardDue)}&key=${apiKey}&token=${userToken}`;
+        const url = `https://api.trello.com/1/cards?idList=${listId}&name=${encodeURIComponent(cardName)}&due=${encodeURIComponent(cardDue)}&key=${TRELLO_API_KEY}&token=${userToken}`;
 
         try {
           const res = await fetch(url, { method: 'POST' });
