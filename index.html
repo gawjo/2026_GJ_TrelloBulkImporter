@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body>
+  <script>
+    TrelloPowerUp.initialize({
+      'card-back-section': function(t, options) {
+        return {
+          title: 'Bulk Importer Dashboard',
+          icon: 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/icons/box-arrow-in-down.svg',
+          content: {
+            type: 'iframe',
+            url: t.signUrl('./section.html'),
+            height: 350
+          }
+        };
+      }
+    });
+  </script>
+</body>
+</html>
